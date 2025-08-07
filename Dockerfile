@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 8000
 
 # UV를 통해 애플리케이션 실행
-CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
