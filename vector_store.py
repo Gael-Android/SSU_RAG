@@ -36,7 +36,7 @@ class VectorStore:
         self.collection_name = collection_name
         self.milvus_host = milvus_host
         self.milvus_port = milvus_port
-        self.embedding_dim = 1536  # OpenAI text-embedding-ada-002 차원
+        self.embedding_dim = 1536  # OpenAI text-embedding-3-small 차원
         
         # OpenAI 클라이언트 초기화
         self.openai_client = OpenAI(
@@ -159,7 +159,7 @@ class VectorStore:
             
             # OpenAI 임베딩 생성
             response = self.openai_client.embeddings.create(
-                model="text-embedding-ada-002",
+                model="text-embedding-3-small",
                 input=clean_text
             )
             

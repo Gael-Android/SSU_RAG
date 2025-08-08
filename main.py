@@ -10,7 +10,7 @@ import atexit
 from contextlib import asynccontextmanager
 
 # RSS 리더 관련 임포트
-from rss_reader import get_rss_reader
+from rss import get_rss_reader
 from scheduler import get_scheduler, start_scheduler, stop_scheduler
 
 # 임베딩 처리 관련 임포트

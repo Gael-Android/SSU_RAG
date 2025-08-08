@@ -45,7 +45,7 @@ POST /rss/fetch
 
 ### 핵심 컴포넌트
 
-1. **RSSReader** (`rss_reader.py`)
+1. **RSSReader** (`rss/reader.py`)
    - RSS 피드 파싱
    - 콘텐츠 해시 기반 중복 검사
    - JSON 형태로 데이터 저장

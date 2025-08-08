@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import threading
 import time
-from rss_reader import get_rss_reader
+from rss import get_rss_reader
 
 logger = logging.getLogger(__name__)
 
