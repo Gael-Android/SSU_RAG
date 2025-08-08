@@ -5,9 +5,11 @@ services:
     build: .
     container_name: SSU_RAG
     ports:
-      - "8000:8000"
+      - "8888:8888"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DOCKER_ENV=true
+      - MILVUS_HOST=milvus
     volumes:
       - ./data:/app/data
     depends_on:
