@@ -37,6 +37,7 @@ class VectorStore:
         self.milvus_host = milvus_host
         self.milvus_port = milvus_port
         self.embedding_dim = 1536  # OpenAI text-embedding-3-small 차원
+        self.metric_type = "COSINE"  # 유사도 계산 방식: COSINE
         
         # OpenAI 클라이언트 초기화
         self.openai_client = OpenAI(
@@ -77,14 +78,15 @@ class VectorStore:
             FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=100, is_primary=True),
             FieldSchema(name="content_hash", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="title", dtype=DataType.VARCHAR, max_length=1000),
+            FieldSchema(name="description", dtype=DataType.VARCHAR, max_length=4000),
             FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=10000),
             FieldSchema(name="author", dtype=DataType.VARCHAR, max_length=200),
             FieldSchema(name="category", dtype=DataType.VARCHAR, max_length=200),
             FieldSchema(name="published", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="link", dtype=DataType.VARCHAR, max_length=1000),
             FieldSchema(name="created_at", dtype=DataType.VARCHAR, max_length=100),
-            FieldSchema(name="title_vector", dtype=DataType.FLOAT_VECTOR, dim=self.embedding_dim),
-            FieldSchema(name="content_vector", dtype=DataType.FLOAT_VECTOR, dim=self.embedding_dim)
+            FieldSchema(name="raw_json", dtype=DataType.VARCHAR, max_length=60000),
+            FieldSchema(name="full_vector", dtype=DataType.FLOAT_VECTOR, dim=self.embedding_dim)
         ]
         
         schema = CollectionSchema(fields, "RSS 아이템 임베딩 컬렉션")
@@ -101,18 +103,14 @@ class VectorStore:
         """벡터 필드에 인덱스 생성"""
         index_params = {
             "index_type": "IVF_FLAT",
-            "metric_type": "L2",
+            "metric_type": self.metric_type,
             "params": {"nlist": 100}
         }
-        
-        # title_vector 인덱스 생성
-        self.collection.create_index("title_vector", index_params)
-        logger.info("title_vector 인덱스가 생성되었습니다.")
-        
-        # content_vector 인덱스 생성
-        self.collection.create_index("content_vector", index_params)
-        logger.info("content_vector 인덱스가 생성되었습니다.")
-        
+
+        # full_vector 인덱스 생성
+        self.collection.create_index("full_vector", index_params)
+        logger.info("full_vector 인덱스가 생성되었습니다.")
+
         # 컬렉션을 메모리에 로드
         self.collection.load()
         logger.info("컬렉션이 메모리에 로드되었습니다.")
@@ -183,28 +181,48 @@ class VectorStore:
                 logger.info(f"이미 처리된 아이템입니다: {content_hash}")
                 return False
             
-            # 텍스트 임베딩 생성
+            # 텍스트 임베딩 생성 (옵션 A: 주요 필드를 라벨링하여 단일 문서 임베딩)
             title = item_data.get("title", "")
-            content = item_data.get("content", "") or item_data.get("description", "")
-            
+            description = item_data.get("description", "")
+            content = item_data.get("content", "")
+            author = item_data.get("author", "")
+            category = item_data.get("category", "")
+            published = item_data.get("published", "")
+
+            parts: List[str] = []
+            if title:
+                parts.append(f"Title: {self._clean_text(title)}")
+            if description:
+                parts.append(f"Description: {self._clean_text(description)}")
+            if content:
+                parts.append(f"Content: {self._clean_text(content)}")
+            if author:
+                parts.append(f"Author: {self._clean_text(author)}")
+            if category:
+                parts.append(f"Category: {self._clean_text(category)}")
+            if published:
+                parts.append(f"Published: {self._clean_text(published)}")
+
+            combined_text = "\n".join(parts)
+
             logger.info(f"임베딩 생성 중: {title[:50]}...")
-            
-            title_vector = self._generate_embedding(title)
-            content_vector = self._generate_embedding(content)
+
+            full_vector = self._generate_embedding(combined_text)
             
             # 데이터 준비
             entity = {
                 "id": content_hash,
                 "content_hash": content_hash,
                 "title": self._clean_text(title)[:1000],  # 길이 제한
+                "description": self._clean_text(description)[:4000],
                 "content": self._clean_text(content)[:10000],  # 길이 제한
-                "author": item_data.get("author", "")[:200],
-                "category": item_data.get("category", "")[:200],
-                "published": item_data.get("published", "")[:100],
+                "author": self._clean_text(author)[:200],
+                "category": self._clean_text(category)[:200],
+                "published": self._clean_text(published)[:100],
                 "link": item_data.get("link", "")[:1000],
                 "created_at": datetime.now().isoformat(),
-                "title_vector": title_vector,
-                "content_vector": content_vector
+                "raw_json": json.dumps(item_data, ensure_ascii=False)[:60000],
+                "full_vector": full_vector
             }
             
             # Milvus에 삽입
@@ -233,9 +251,9 @@ class VectorStore:
         return added_count
     
     def search_similar(self, 
-                      query_text: str, 
-                      search_field: str = "content_vector",
-                      limit: int = 5) -> List[Dict]:
+                       query_text: str, 
+                       search_field: str = "full_vector",
+                       limit: int = 5) -> List[Dict]:
         """유사한 아이템 검색"""
         try:
             # 쿼리 텍스트 임베딩 생성
@@ -243,17 +261,32 @@ class VectorStore:
             
             # 검색 파라미터
             search_params = {
-                "metric_type": "L2",
+                "metric_type": self.metric_type,
                 "params": {"nprobe": 10}
             }
             
             # 검색 실행
+            # 필드 존재 여부에 따라 안전하게 검색 필드 결정 (구 스키마 호환)
+            try:
+                field_names = {f.name for f in self.collection.schema.fields}
+            except Exception:
+                field_names = set()
+
+            effective_field = search_field
+            if effective_field not in field_names:
+                if "full_vector" in field_names:
+                    effective_field = "full_vector"
+                elif "content_vector" in field_names:
+                    effective_field = "content_vector"
+                elif "title_vector" in field_names:
+                    effective_field = "title_vector"
+
             results = self.collection.search(
                 data=[query_vector],
-                anns_field=search_field,
+                anns_field=effective_field,
                 param=search_params,
                 limit=limit,
-                output_fields=["title", "content", "author", "category", "published", "link"]
+                output_fields=["title", "description", "content", "author", "category", "published", "link", "raw_json"]
             )
             
             # 결과 변환
@@ -279,10 +312,15 @@ class VectorStore:
     def get_stats(self) -> Dict:
         """벡터 스토어 통계 정보"""
         try:
-            stats = self.collection.get_stats()
+            # PyMilvus 2.6+에서는 get_stats()가 없을 수 있으므로 num_entities 기반으로 집계
+            try:
+                total_entities = int(getattr(self.collection, "num_entities", 0))
+            except Exception:
+                total_entities = 0
+
             return {
                 "collection_name": self.collection_name,
-                "total_entities": stats.get("row_count", 0),
+                "total_entities": total_entities,
                 "processed_hashes": len(self._processed_hashes),
                 "index_status": "loaded" if self.collection.has_index() else "not_loaded"
             }

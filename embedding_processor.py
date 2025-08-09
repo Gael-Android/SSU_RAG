@@ -147,12 +147,12 @@ class EmbeddingProcessor:
             return False
     
     def search_similar_content(self, query: str, limit: int = 5) -> List[Dict]:
-        """쿼리와 유사한 콘텐츠 검색"""
-        return self.vector_store.search_similar(query, "content_vector", limit)
+        """쿼리와 유사한 콘텐츠 검색 (옵션 A: full_vector 기준)"""
+        return self.vector_store.search_similar(query, "full_vector", limit)
     
     def search_similar_title(self, query: str, limit: int = 5) -> List[Dict]:
-        """쿼리와 유사한 제목 검색"""
-        return self.vector_store.search_similar(query, "title_vector", limit)
+        """쿼리와 유사한 제목 검색 (옵션 A: full_vector 기준)"""
+        return self.vector_store.search_similar(query, "full_vector", limit)
     
     def get_statistics(self) -> Dict:
         """처리 통계 정보 반환"""
