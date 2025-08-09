@@ -4,6 +4,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langserve import add_routes
+from typing import List, Dict
+from langchain_core.runnables import RunnableLambda
+from typing import List, Dict
 import os
 from dotenv import load_dotenv
 import atexit
@@ -171,6 +174,90 @@ async def search_similar(query: str, limit: int = 5, search_type: str = "content
         }
     except Exception as e:
         return {"error": f"검색 중 오류: {str(e)}"}
+
+
+# (단일화) GET /qa 제거 → POST /qa 만 유지
+
+
+# ===== RAG 공통 유틸 =====
+def _build_context(items: List[Dict]) -> str:
+    lines: List[str] = []
+    for i, item in enumerate(items, 1):
+        title = item.get("title") or ""
+        description = item.get("description") or ""
+        content = item.get("content") or ""
+        author = item.get("author") or ""
+        category = item.get("category") or ""
+        published = item.get("published") or ""
+        link = item.get("link") or ""
+        snippet = (description or content)[:500]
+        lines.append(
+            f"[{i}] Title: {title}\nAuthor: {author} | Category: {category} | Published: {published}\nSnippet: {snippet}\nLink: {link}"
+        )
+    return "\n\n".join(lines)
+
+
+# ===== RAG QA REST 엔드포인트 (POST: 한글 안전) =====
+@app.post("/qa")
+async def rag_qa_post(payload: Dict) -> Dict:
+    """POST 바디로 질의를 받아 처리 (한글/인코딩 안전)"""
+    query = (payload or {}).get("query", "")
+    limit = int((payload or {}).get("limit", 5))
+    # 상위 컨텍스트 빌드 후 동일 로직 재사용
+    processor = get_embedding_processor()
+    if not processor:
+        return {"error": "임베딩 처리기를 초기화할 수 없습니다."}
+    results: List[Dict] = processor.search_similar_content(query, limit)
+    context_text = _build_context(results)
+    rag_prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            "너는 제공된 문맥(Context)만을 근거로 한국어로 간결하고 정확하게 답변한다. 모르면 모른다고 말한다. 필요하면 출처 링크도 함께 제시한다.",
+        ),
+        ("human", "질문: {question}\n\nContext:\n{context}"),
+    ])
+    rag_chain = rag_prompt | llm | StrOutputParser()
+    answer = rag_chain.invoke({"question": query, "context": context_text})
+    sources = [
+        {
+            "title": r.get("title"),
+            "link": r.get("link"),
+            "published": r.get("published"),
+            "author": r.get("author"),
+            "category": r.get("category"),
+            "distance": r.get("distance"),
+        }
+        for r in results
+    ]
+    return {"query": query, "answer": answer, "sources": sources}
+
+
+# ===== LangServe용 RAG 체인 노출 (/rag) =====
+def _rag_items(query: str, limit: int = 5) -> Dict:
+    processor = get_embedding_processor()
+    results: List[Dict] = processor.search_similar_content(query, limit)
+    return {"question": query, "items": results, "context": _build_context(results)}
+
+
+_rag_prompt = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        "너는 제공된 문맥(Context)만을 근거로 한국어로 간결하고 정확하게 답변한다. 모르면 모른다고 말한다. 필요하면 출처 링크도 함께 제시한다.",
+    ),
+    ("human", "질문: {question}\n\nContext:\n{context}"),
+])
+
+_rag_answer_chain = _rag_prompt | llm | StrOutputParser()
+
+rag_chain_server = (
+    RunnableLambda(lambda q: _rag_items(q))
+)
+
+add_routes(
+    app,
+    rag_chain_server,
+    path="/rag",
+)
 
 if __name__ == "__main__":
     import uvicorn
