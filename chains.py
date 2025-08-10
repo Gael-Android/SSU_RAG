@@ -21,13 +21,6 @@ llm = ChatOpenAI(
 )
 
 
-# ===== Chat 체인 (일반 대화) =====
-_chat_prompt = ChatPromptTemplate.from_messages([
-    ("system", "당신은 도움이 되는 AI 어시스턴트입니다. 한국어로 친근하게 대답해주세요."),
-    ("human", "{input}"),
-])
-
-chat_chain = _chat_prompt | llm | StrOutputParser()
 
 
 # ===== 벡터 검색 유틸 =====

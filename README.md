@@ -12,7 +12,7 @@
 
 ## 시스템 구성
 
-- **Backend**: FastAPI + LangChain + LangServe
+ - **Backend**: FastAPI + LangChain
 - **Frontend**: React + Vite
 - **Vector DB**: Milvus
 - **LLM**: OpenAI GPT-3.5-turbo
@@ -98,8 +98,7 @@ SSU_RAG/
 
 ### 백엔드 로컬 실행
 ```bash
-pip install -r requirements.txt
-python main.py
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ### 프론트엔드 로컬 실행
