@@ -10,6 +10,7 @@ dependencies = [
     "feedparser>=6.0.11",
     "langchain>=0.3.27",
     "langchain-openai>=0.3.28",
+    "langchain-community>=0.3.27",
     "pymilvus>=2.6.0",
     "python-dotenv>=1.1.1",
     "requests>=2.32.4",

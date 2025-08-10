@@ -8,6 +8,15 @@ function ChatInterface() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
+  const [sessionId, setSessionId] = useState(() => {
+    const existing = localStorage.getItem('ssu_rag_session_id');
+    if (existing) return existing;
+    const newId = (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+    localStorage.setItem('ssu_rag_session_id', newId);
+    return newId;
+  });
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -27,13 +36,17 @@ function ChatInterface() {
       timestamp: new Date()
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    const allMessages = [...messages, userMessage];
+    setMessages(allMessages);
     setIsLoading(true);
 
     try {
+      const minimalHistory = allMessages.map(m => ({ role: m.role, content: m.text }));
       const response = await axios.post('/api/chat_api', {
         query: text,
-        limit: 5
+        limit: 5,
+        messages: minimalHistory,
+        session_id: sessionId,
       });
 
       const aiMessage = {

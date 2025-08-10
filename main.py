@@ -171,7 +171,13 @@ async def rag_qa_post(payload: Dict) -> Dict:
     """POST 바디로 질의를 받아 처리 (한글/인코딩 안전)"""
     query = (payload or {}).get("query", "")
     limit = int((payload or {}).get("limit", 5))
-    return run_rag_qa(query=query, limit=limit)
+    messages = (payload or {}).get("messages")
+    session_id = (payload or {}).get("session_id")
+    try:
+        print(f"[POST /qa] sid={session_id} messages={len(messages) if isinstance(messages, list) else 0}")
+    except Exception:
+        pass
+    return run_rag_qa(query=query, limit=limit, messages=messages, session_id=session_id)
 
 # ===== 간단한 채팅 엔드포인트 =====
 @app.post("/chat_api")
@@ -190,10 +196,17 @@ async def chat_simple(payload: Dict) -> Dict:
     if not query:
         return {"error": "질문을 입력해주세요."}
     
-    result = run_rag_qa(query=query)
+    messages = (payload or {}).get("messages")
+    session_id = (payload or {}).get("session_id")
+    try:
+        print(f"[POST /chat_api] sid={session_id} messages={len(messages) if isinstance(messages, list) else 0}")
+    except Exception:
+        pass
+    result = run_rag_qa(query=query, messages=messages, session_id=session_id)
     return {
         "message": result.get("answer", "답변을 생성할 수 없습니다."),
         "query": query,
+        "rephrased_query": result.get("rephrased_query"),
         "sources": result.get("sources", [])
     }
 
