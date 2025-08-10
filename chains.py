@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnableLambda
 
 from embedding_processor import EmbeddingProcessor
 
@@ -63,7 +62,7 @@ def _build_context(items: List[Dict]) -> str:
 _rag_prompt = ChatPromptTemplate.from_messages([
     (
         "system",
-        "너는 제공된 문맥(Context)만을 근거로 한국어로 간결하고 정확하게 답변한다. 모르면 모른다고 말한다. 필요하면 출처 링크도 함께 제시한다.",
+        "너는 제공된 문맥(Context)만을 근거로 한국어로 간결하고 정확하게 답변한다. 모르면 모른다고 말한다. 반드시 본문 내에 문맥 항목의 대괄호 번호([1], [2], ...)로 근거를 표시하라. 본문에는 링크를 넣지 말고, 링크 목록은 시스템이 답변 마지막에 '참고 문서' 섹션으로 자동 첨부한다.",
     ),
     ("human", "질문: {question}\n\nContext:\n{context}"),
 ])
@@ -71,33 +70,53 @@ _rag_prompt = ChatPromptTemplate.from_messages([
 _rag_answer_chain = _rag_prompt | llm | StrOutputParser()
 
 
-def run_rag_qa(query: str, limit: int = 5) -> Dict:
-    """질의를 받아 상위 문맥 검색 후 답변 및 출처를 반환"""
+# ===== 통합된 RAG 체인 =====
+def unified_rag_chain(query: str, limit: int = 5) -> Dict:
+    """질의를 받아 답변, 상세 검색 결과, 출처를 모두 반환하는 통합 함수"""
     processor = get_processor()
     results: List[Dict] = processor.search_similar_content(query, limit)
     context_text = _build_context(results)
+    
+    # AI 답변 생성
     answer = _rag_answer_chain.invoke({"question": query, "context": context_text})
-    sources = [
-        {
-            "title": r.get("title"),
-            "link": r.get("link"),
-            "published": r.get("published"),
-            "author": r.get("author"),
-            "category": r.get("category"),
-            "distance": r.get("distance"),
-        }
-        for r in results
-    ]
-    return {"query": query, "answer": answer, "sources": sources}
+    
+    # 출처 정보 구성
+    sources = []
+    sources_lines: List[str] = []
+    for idx, r in enumerate(results, 1):
+        title = r.get("title")
+        link = r.get("link")
+        sources.append(
+            {
+                "index": idx,
+                "title": title,
+                "link": link,
+                "published": r.get("published"),
+                "author": r.get("author"),
+                "category": r.get("category"),
+                "distance": r.get("distance"),
+            }
+        )
+        sources_lines.append(f"[{idx}] {title} - {link}")
 
+    # # 답변 본문 끝에 참고 문서 섹션 자동 첨부
+    # answer_with_sources = answer.strip()
+    # if sources_lines:
+    #     answer_with_sources += "\n\n참고 문서:\n" + "\n".join(sources_lines)
 
-# ===== LangServe용 RAG 체인 (/rag) =====
-def _rag_items(query: str, limit: int = 5) -> Dict:
-    processor = get_processor()
-    results: List[Dict] = processor.search_similar_content(query, limit)
-    return {"question": query, "items": results, "context": _build_context(results)}
+    # 통합된 결과 반환 (기존 run_rag_qa + _rag_items 정보 모두 포함)
+    return {
+        "query": query,
+        "answer": answer,
+        "sources": sources,
+        "context": context_text,
+        "items": results,
+        "sources_text": "\n".join(sources_lines),
+    }
 
+# 기존 함수들과의 호환성을 위한 별칭
+run_rag_qa = unified_rag_chain
 
-rag_chain_server = RunnableLambda(lambda q: _rag_items(q))
+# LangServe 관련 스키마/래퍼 제거
 
 

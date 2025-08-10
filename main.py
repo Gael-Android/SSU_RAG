@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from langserve import add_routes
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict
 from contextlib import asynccontextmanager
 
@@ -9,7 +9,7 @@ from scheduler import get_scheduler, start_scheduler, stop_scheduler
 
 # 임베딩 처리 관련 임포트
 from embedding_processor import EmbeddingProcessor
-from chains import chat_chain, rag_chain_server, run_rag_qa
+from chains import run_rag_qa
 
 # 환경 변수 로드는 chains.py에서 처리
 
@@ -22,6 +22,17 @@ async def lifespan(app: FastAPI):
     stop_scheduler()
 
 app = FastAPI(title="SSU RAG Chatbot", version="1.0.0", lifespan=lifespan)
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3001", "http://localhost:3002", "http://localhost:8888"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ChatInput 클래스 제거 - 더 이상 필요 없음
 
 # 임베딩 처리기 초기화 (전역 변수)
 embedding_processor = None
@@ -37,23 +48,19 @@ def get_embedding_processor():
             embedding_processor = None
     return embedding_processor
 
-# 체인 구성 (분리된 chains.py 사용)
-chain = chat_chain
-
-# LangServe로 채팅 엔드포인트 추가
-add_routes(
-    app,
-    chain,
-    path="/chat"
-)
+# LangServe 관련 코드 모두 제거
+# 순수 FastAPI 엔드포인트만 사용
 
 @app.get("/")
 async def root():
     return {
         "message": "SSU RAG Chatbot API", 
         "status": "running",
-        "playground": "http://localhost:8888/chat/playground",
         "docs": "http://localhost:8888/docs",
+        "api_endpoints": {
+            "chat_api": "POST http://localhost:8888/chat_api",
+            "qa": "POST http://localhost:8888/qa"
+        },
         "rss_endpoints": {
             "status": "http://localhost:8888/rss/status",
             "items": "http://localhost:8888/rss/items",
@@ -166,12 +173,30 @@ async def rag_qa_post(payload: Dict) -> Dict:
     limit = int((payload or {}).get("limit", 5))
     return run_rag_qa(query=query, limit=limit)
 
+# ===== 간단한 채팅 엔드포인트 =====
+@app.post("/chat_api")
+async def chat_simple(payload: Dict) -> Dict:
+    """간단한 채팅 엔드포인트 - 다양한 입력 형태 지원"""
+    # input, question, query 키 모두 지원
+    query = (payload or {}).get("input") or (payload or {}).get("question") or (payload or {}).get("query", "")
+    
+    # messages 배열도 지원 (마지막 user 메시지 추출)
+    if not query and "messages" in (payload or {}):
+        messages = payload.get("messages", [])
+        user_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") == "user" and m.get("content")]
+        if user_msgs:
+            query = user_msgs[-1]["content"]
+    
+    if not query:
+        return {"error": "질문을 입력해주세요."}
+    
+    result = run_rag_qa(query=query)
+    return {
+        "message": result.get("answer", "답변을 생성할 수 없습니다."),
+        "query": query,
+        "sources": result.get("sources", [])
+    }
 
-add_routes(
-    app,
-    rag_chain_server,
-    path="/rag",
-)
 
 if __name__ == "__main__":
     import uvicorn
