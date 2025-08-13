@@ -278,21 +278,8 @@ class VectorStore:
                 "params": {"nprobe": 10}
             }
             
-            # 검색 실행
-            # 필드 존재 여부에 따라 안전하게 검색 필드 결정 (구 스키마 호환)
-            try:
-                field_names = {f.name for f in self.collection.schema.fields}
-            except Exception:
-                field_names = set()
-
-            effective_field = search_field
-            if effective_field not in field_names:
-                if "full_vector" in field_names:
-                    effective_field = "full_vector"
-                elif "content_vector" in field_names:
-                    effective_field = "content_vector"
-                elif "title_vector" in field_names:
-                    effective_field = "title_vector"
+            # 검색 실행 (단일 스키마: full_vector)
+            effective_field = "full_vector"
 
             results = self.collection.search(
                 data=[query_vector],

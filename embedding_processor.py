@@ -70,9 +70,6 @@ class EmbeddingProcessor:
                     for name in files:
                         if not name.endswith('.json'):
                             continue
-                        # 레거시 파일은 제외
-                        if name == 'rss_items.json':
-                            continue
                         fp = os.path.join(root, name)
                         items = _load_file(fp)
                         for content_hash, item in items.items():
@@ -197,7 +194,7 @@ class EmbeddingProcessor:
             file_list = []
             for root, _, files in os.walk(self.json_file_path):
                 for name in files:
-                    if name.endswith('.json') and name != 'rss_items.json':
+                    if name.endswith('.json'):
                         file_list.append(os.path.join(root, name))
             json_overview.update({
                 "exists": True,

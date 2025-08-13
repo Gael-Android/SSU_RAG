@@ -7,6 +7,8 @@ import time
 from rss import get_rss_reader
 from rss.reader import create_rss_reader_for
 from rss.sources import KNOWN_SOURCES
+from rss.utils import identifier_to_filename
+from embedding_processor import EmbeddingProcessor
 import os
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,10 @@ class RSSScheduler:
         self.rss_reader = get_rss_reader()
         self.last_fetch_time: Optional[datetime] = None
         self.fetch_count = 0
+        # 임베딩 관련 상태
+        self.embedding_processor: Optional[EmbeddingProcessor] = None
+        self.last_embedding_time: Optional[datetime] = None
+        self.last_embedding_result: Optional[dict] = None
         
     def start(self):
         """스케줄러 시작"""
@@ -34,8 +40,8 @@ class RSSScheduler:
         self.thread.start()
         logger.info(f"RSS 스케줄러가 시작되었습니다. (간격: {self.interval_hours}시간)")
         
-        # 시작할 때 한 번 실행
-        self._fetch_all()
+        # 시작할 때 한 번 비동기로 실행 (앱 스타트업을 블로킹하지 않도록 별도 스레드)
+        threading.Thread(target=self._fetch_all, daemon=True).start()
     
     def stop(self):
         """스케줄러 중지"""
@@ -67,21 +73,8 @@ class RSSScheduler:
                 time.sleep(60)  # 1분 대기 후 재시도
     
     def _fetch_rss(self):
-        """기본 RSS 피드를 가져오기 (단일)"""
-        try:
-            logger.info("정기 RSS 피드 가져오기 시작")
-            result = self.rss_reader.fetch_feed()
-            
-            self.last_fetch_time = datetime.now(timezone.utc)
-            self.fetch_count += 1
-            
-            if result["status"] == "success":
-                logger.info(f"RSS 피드 가져오기 성공: 새 아이템 {result['new_items']}개")
-            else:
-                logger.error(f"RSS 피드 가져오기 실패: {result.get('error', 'Unknown error')}")
-                
-        except Exception as e:
-            logger.error(f"RSS 피드 가져오기 중 예외 발생: {e}")
+        """기본 RSS 피드를 가져오기 (단일) - 사용 안 함"""
+        pass
 
     def _fetch_all(self):
         """외부 파일의 identifier 목록을 순회하며 모두 수집"""
@@ -101,6 +94,12 @@ class RSSScheduler:
                     logger.error("[%s] 실패: %s", identifier, result.get("error"))
             except Exception as e:
                 logger.error("[%s] 수집 중 예외: %s", identifier, e)
+
+        # 수집 후 임베딩 처리 (data 디렉토리 전체 기준, 신규만 처리)
+        try:
+            self._run_embedding()
+        except Exception as e:
+            logger.error("임베딩 처리 트리거 중 예외: %s", e)
     
     def get_status(self) -> dict:
         """스케줄러 상태 정보 반환"""
@@ -109,7 +108,8 @@ class RSSScheduler:
             "interval_hours": self.interval_hours,
             "last_fetch_time": self.last_fetch_time.isoformat() if self.last_fetch_time else None,
             "fetch_count": self.fetch_count,
-            "next_fetch_in_seconds": None if not self.is_running else self.interval_seconds
+            "next_fetch_in_seconds": None if not self.is_running else self.interval_seconds,
+            "last_embedding_time": self.last_embedding_time.isoformat() if self.last_embedding_time else None
         }
     
     def fetch_now(self) -> dict:
@@ -137,13 +137,42 @@ class RSSScheduler:
                     "status": "error",
                     "error": str(e),
                 })
+        # 수집 후 임베딩 처리 (data 디렉토리 전체 기준, 신규만 처리)
+        try:
+            self._run_embedding()
+        except Exception as e:
+            logger.error("임베딩 처리 트리거 중 예외: %s", e)
         return {"status": "success", "totals": totals, "results": results}
 
     def fetch_for(self, identifier: str) -> dict:
         """특정 identifier 피드를 즉시 가져오기"""
         logger.info("수동 RSS 피드 가져오기 요청 - identifier=%s", identifier)
         reader = create_rss_reader_for(identifier)
-        return reader.fetch_feed()
+        result = reader.fetch_feed()
+        # 해당 identifier 파일만 대상으로 임베딩 처리
+        try:
+            self._run_embedding(identifier_to_filename(identifier))
+        except Exception as e:
+            logger.error("임베딩 처리 트리거 중 예외(identifier=%s): %s", identifier, e)
+        return result
+
+    # 내부: 임베딩 프로세서 준비 및 실행
+    def _ensure_embedder(self, json_file_path: Optional[str] = None) -> EmbeddingProcessor:
+        # data 디렉토리 전체 처리용 임베더는 재사용
+        if json_file_path is None or json_file_path == "data":
+            if self.embedding_processor is None:
+                self.embedding_processor = EmbeddingProcessor(json_file_path or "data")
+            return self.embedding_processor
+        # 특정 파일 처리 시 임시 인스턴스 사용
+        return EmbeddingProcessor(json_file_path)
+
+    def _run_embedding(self, json_file_path: Optional[str] = None) -> dict:
+        processor = self._ensure_embedder(json_file_path)
+        result = processor.process_all_items()
+        self.last_embedding_time = datetime.now(timezone.utc)
+        self.last_embedding_result = result
+        logger.info("임베딩 처리 완료: %s", result)
+        return result
 
 # 전역 스케줄러 인스턴스
 _scheduler_instance: Optional[RSSScheduler] = None

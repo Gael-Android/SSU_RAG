@@ -5,7 +5,7 @@ from dataclasses import asdict
 from typing import Dict, List
 
 from .models import RSSItem
-from .utils import normalize_hrefs, rewrite_download_urls
+from .utils import normalize_hrefs, rewrite_download_urls, identifier_to_filename
 
 
 logger = logging.getLogger(__name__)
@@ -33,10 +33,6 @@ class RSSStorage:
                     # data는 {content_hash: item_dict}
                     items: Dict[str, RSSItem] = {}
                     for key, item_data in data.items():
-                        if isinstance(item_data, dict) and "IDENTIFIER" in item_data and "identifier" not in item_data:
-                            # 과거 대문자 키를 소문자 필드로 매핑
-                            item_data = {**item_data}
-                            item_data["identifier"] = item_data.pop("IDENTIFIER")
                         # dataclass 정의에 없는 키 무시
                         try:
                             items[key] = RSSItem(**item_data)

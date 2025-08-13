@@ -10,3 +10,6 @@ wheels/
 .venv
 .env
 .env.prod
+
+# Project data (generated RSS/embeddings JSON)
+data/
