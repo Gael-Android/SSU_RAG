@@ -26,29 +26,37 @@ function MessageList({ messages, isLoading }) {
             </div>
             <div className="message-text">
               {message.role === 'assistant' ? (
-                <ReactMarkdown
-                  components={{
-                    code({ node, inline, className, children, ...props }) {
-                      const match = /language-(\w+)/.exec(className || '');
-                      return !inline && match ? (
-                        <SyntaxHighlighter
-                          language={match[1]}
-                          style={vscDarkPlus}
-                          PreTag="div"
-                          {...props}
-                        >
-                          {String(children).replace(/\n$/, '')}
-                        </SyntaxHighlighter>
-                      ) : (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    }
-                  }}
-                >
-                  {message.text}
-                </ReactMarkdown>
+                (!message.text || String(message.text).trim() === '') ? (
+                  <div className="loading-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                ) : (
+                  <ReactMarkdown
+                    components={{
+                      code({ node, inline, className, children, ...props }) {
+                        const match = /language-(\w+)/.exec(className || '');
+                        return !inline && match ? (
+                          <SyntaxHighlighter
+                            language={match[1]}
+                            style={vscDarkPlus}
+                            PreTag="div"
+                            {...props}
+                          >
+                            {String(children).replace(/\n$/, '')}
+                          </SyntaxHighlighter>
+                        ) : (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        );
+                      }
+                    }}
+                  >
+                    {message.text}
+                  </ReactMarkdown>
+                )
               ) : (
                 message.text
               )}
@@ -68,18 +76,6 @@ function MessageList({ messages, isLoading }) {
           </div>
         </div>
       ))}
-      {isLoading && (
-        <div className="message assistant">
-          <div className="message-avatar">🤖</div>
-          <div className="message-content">
-            <div className="loading-dots">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
