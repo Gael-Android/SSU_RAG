@@ -113,9 +113,31 @@ class RSSScheduler:
         }
     
     def fetch_now(self) -> dict:
-        """즉시 RSS 피드 가져오기"""
-        logger.info("수동 RSS 피드 가져오기 요청")
-        return self.rss_reader.fetch_feed()
+        """즉시 모든 RSS 피드 가져오기 (KNOWN_SOURCES 순회)"""
+        logger.info("수동 RSS 피드 일괄 가져오기 요청")
+        return self.fetch_all()
+
+    def fetch_all(self) -> dict:
+        """공개 API: 모든 소스를 순회하여 결과 요약 반환"""
+        results = []
+        totals = {"new_items": 0, "existing_items": 0, "total_entries": 0}
+        for item in [{"identifier": k, "rss_url": v} for k, v in KNOWN_SOURCES.items()]:
+            identifier = item["identifier"]
+            try:
+                reader = create_rss_reader_for(identifier)
+                result = reader.fetch_feed()
+                results.append({"identifier": identifier, **result})
+                if result.get("status") == "success":
+                    totals["new_items"] += int(result.get("new_items", 0))
+                    totals["existing_items"] += int(result.get("existing_items", 0))
+                    totals["total_entries"] += int(result.get("total_entries", 0))
+            except Exception as e:
+                results.append({
+                    "identifier": identifier,
+                    "status": "error",
+                    "error": str(e),
+                })
+        return {"status": "success", "totals": totals, "results": results}
 
     def fetch_for(self, identifier: str) -> dict:
         """특정 identifier 피드를 즉시 가져오기"""

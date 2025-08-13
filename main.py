@@ -106,10 +106,9 @@ async def get_recent_rss_items(count: int = 10):
 
 @app.post("/rss/fetch")
 async def fetch_rss_now():
-    """즉시 RSS 피드 가져오기"""
+    """즉시 모든 RSS 피드 가져오기 (KNOWN_SOURCES 순회)"""
     scheduler = get_scheduler()
-    result = scheduler.fetch_now()
-    return result
+    return scheduler.fetch_now()
 
 
 @app.post("/rss/fetch/{identifier}")
