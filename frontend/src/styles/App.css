@@ -48,6 +48,26 @@
   overflow-y: auto;
 }
 
+/* 기능 탭 */
+.tab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tab-btn {
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+}
+.tab-btn.active {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 .sidebar-content p {
   color: rgba(255, 255, 255, 0.7);
   font-size: 14px;
@@ -59,6 +79,76 @@
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+/* 추천 페이지 */
+.recommend {
+  padding: 16px;
+  width: 100%;
+  overflow: auto;
+}
+.recommend-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+.recommend-form .form-row {
+  display: flex;
+  flex-direction: column;
+}
+.recommend-form input {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+.recommend-form .form-row-submit {
+  grid-column: 1 / -1; /* 한 줄 전체 차지 */
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+.recommend-submit {
+  min-width: 200px;
+  padding: 10px 16px;
+  background-color: #16a34a; /* 녹색 */
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.3);
+  transition: all 0.15s ease;
+}
+.recommend-submit:hover {
+  background-color: #15803d; /* 진한 녹색 */
+  box-shadow: 0 4px 10px rgba(22, 163, 74, 0.35);
+}
+.recommend-submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.recommend-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.card {
+  display: block;
+  padding: 12px;
+  border: 1px solid #e3e3e3;
+  border-radius: 8px;
+  background: #fff;
+  color: #111;
+  text-decoration: none;
+}
+.card-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.card-summary {
+  color: #444;
+  font-size: 14px;
 }
 
 /* 반응형 디자인 */

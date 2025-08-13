@@ -24,7 +24,8 @@ class VectorStore:
                  collection_name: str = "rss_items",
                  milvus_host: str = "localhost",
                  milvus_port: str = "19530",
-                 openai_api_key: str = None):
+                  openai_api_key: str = None,
+                  load_hashes: bool = True):
         """
         벡터 스토어 초기화
         
@@ -49,9 +50,10 @@ class VectorStore:
         self._connect_milvus()
         self._setup_collection()
         
-        # 이미 처리된 아이템들의 해시 캐시
+        # 이미 처리된 아이템들의 해시 캐시 (옵션)
         self._processed_hashes: Set[str] = set()
-        self._load_processed_hashes()
+        if load_hashes:
+            self._load_processed_hashes()
     
     def _connect_milvus(self):
         """Milvus 데이터베이스에 연결 (준비될 때까지 재시도)"""
@@ -269,6 +271,12 @@ class VectorStore:
                        limit: int = 5) -> List[Dict]:
         """유사한 아이템 검색"""
         try:
+            # 컬렉션이 메모리에 없는 경우 로드 시도
+            try:
+                self.collection.load()
+            except Exception:
+                pass
+
             # 쿼리 텍스트 임베딩 생성
             query_vector = self._generate_embedding(query_text)
             
@@ -296,6 +304,7 @@ class VectorStore:
                     "id": hit.id,
                     "distance": hit.distance,
                     "title": hit.entity.get("title"),
+                    "description": hit.entity.get("description"),
                     "content": hit.entity.get("content"),
                     "author": hit.entity.get("author"),
                     "category": hit.entity.get("category"),

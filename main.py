@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict
 from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse
+import os
 
 # RSS 리더 관련 임포트
 from rss import get_rss_reader
@@ -12,6 +13,7 @@ from scheduler import get_scheduler, start_scheduler, stop_scheduler
 # 임베딩 처리 관련 임포트
 from embedding_processor import EmbeddingProcessor
 from chains import run_rag_qa, stream_rag_qa
+from vector_store import VectorStore
 
 # 환경 변수 로드는 chains.py에서 처리
 
@@ -168,6 +170,99 @@ async def search_similar(query: str, limit: int = 5, search_type: str = "content
         }
     except Exception as e:
         return {"error": f"검색 중 오류: {str(e)}"}
+
+
+# ===== 추천 엔드포인트 =====
+@app.post("/recommend")
+async def recommend(payload: Dict):
+    """
+    사용자의 프로필 텍스트(학과, 성별, 나이, 관심분야 등)를 받아
+    20개의 관련 공지/게시글을 추천합니다.
+    payload 예시: {"department":"컴공", "gender":"남", "age":23, "interests":"알고리즘, 인턴십"}
+    또는 {"profile":"컴공 23세 남 관심분야: 인턴십, 대외활동"}
+    """
+    profile = (
+        (payload or {}).get("profile")
+        or " ".join(
+            str((payload or {}).get(k, ""))
+            for k in ["department", "gender", "age", "interests"]
+        )
+    ).strip()
+
+    if not profile:
+        return {"error": "프로필 정보를 입력해주세요."}
+
+    try:
+        # 실행 환경에 맞는 Milvus 호스트 결정
+        milvus_host = (
+            os.getenv("MILVUS_HOST")
+            or ("milvus-standalone" if os.getenv("DOCKER_ENV") == "true" else "localhost")
+        )
+        # VectorStore를 직접 사용하여 검색 (EmbeddingProcessor 없이 경량 호출)
+        vs = VectorStore(
+            milvus_host=milvus_host,
+            milvus_port="19530",
+            load_hashes=False,  # 추천 검색은 캐시 불필요
+        )
+        # 요청 사양: 20개 추천
+        items = vs.search_similar(profile, limit=20)
+        # 1) 기본 결과 골격 생성
+        results = [
+            {
+                "title": it.get("title"),
+                "summary": (it.get("description") or it.get("content") or "")[:160],
+                "link": it.get("link"),
+                "distance": it.get("distance"),
+                "_raw_content": (it.get("description") or it.get("content") or "")
+            }
+            for it in items
+        ]
+
+        # 2) OpenAI로 개인화 요약/이유 생성 (실패 시 기존 summary 유지)
+        client = getattr(vs, "openai_client", None)
+        if client:
+            for res in results:
+                try:
+                    content_text = (res.get("_raw_content") or "").strip()
+                    # 과도한 토큰 방지: 앞부분만 사용
+                    snippet = content_text[:1200]
+                    title_text = (res.get("title") or "").strip()[:200]
+                    prompt_user = (
+                        "다음은 사용자의 프로필과 추천 대상 글입니다. "
+                        "이 글을 사용자가 왜 볼 가치가 있는지 한국어로 1~2문장으로 간결하게 설명하세요. "
+                        "가능하면 핵심 키워드를 포함하세요. 180자 이내.\n\n"
+                        f"[사용자 프로필]\n{profile}\n\n"
+                        f"[글 제목]\n{title_text}\n\n"
+                        f"[글 요약 텍스트]\n{snippet}"
+                    )
+                    chat = client.chat.completions.create(
+                        model=os.getenv("OPENAI_RECOMMEND_MODEL", "gpt-4o-mini"),
+                        messages=[
+                            {"role": "system", "content": "당신은 대학 공지/행사 추천 사유를 간단명료하게 작성하는 비서입니다."},
+                            {"role": "user", "content": prompt_user},
+                        ],
+                        temperature=0.2,
+                        max_tokens=120,
+                    )
+                    reason = (chat.choices[0].message.content or "").strip()
+                    if reason:
+                        res["summary"] = reason[:280]
+                except Exception:
+                    # 실패 시 기존 summary 유지
+                    pass
+
+        # 전송 전 내부 필드 제거
+        for res in results:
+            if "_raw_content" in res:
+                del res["_raw_content"]
+        return {"query": profile, "count": len(results), "results": results}
+    except Exception as e:
+        return {"error": f"추천 중 오류: {str(e)}"}
+
+# Nginx 프록시 규칙(/api/)에 맞춘 별칭 경로
+@app.post("/api/recommend")
+async def recommend_alias(payload: Dict):
+    return await recommend(payload)
 
 
 # (단일화) GET /qa 제거 → POST /qa 만 유지
