@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict
 from contextlib import asynccontextmanager
+from fastapi.responses import StreamingResponse
 
 # RSS 리더 관련 임포트
 from rss import get_rss_reader
@@ -9,7 +10,7 @@ from scheduler import get_scheduler, start_scheduler, stop_scheduler
 
 # 임베딩 처리 관련 임포트
 from embedding_processor import EmbeddingProcessor
-from chains import run_rag_qa
+from chains import run_rag_qa, stream_rag_qa
 
 # 환경 변수 로드는 chains.py에서 처리
 
@@ -209,6 +210,62 @@ async def chat_simple(payload: Dict) -> Dict:
         "rephrased_query": result.get("rephrased_query"),
         "sources": result.get("sources", [])
     }
+
+
+# ===== 스트리밍 엔드포인트 (SSE) =====
+@app.post("/qa/stream")
+async def rag_qa_stream(payload: Dict):
+    query = (payload or {}).get("query", "")
+    limit = int((payload or {}).get("limit", 5))
+    messages = (payload or {}).get("messages")
+    session_id = (payload or {}).get("session_id")
+
+    def event_generator():
+        for chunk in stream_rag_qa(query=query, limit=limit, messages=messages, session_id=session_id):
+            yield chunk
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # nginx 버퍼링 방지
+        },
+    )
+
+
+@app.post("/chat_api/stream")
+async def chat_simple_stream(payload: Dict):
+    query = (payload or {}).get("input") or (payload or {}).get("question") or (payload or {}).get("query", "")
+    if not query and "messages" in (payload or {}):
+        msgs = payload.get("messages", [])
+        user_msgs = [m for m in msgs if isinstance(m, dict) and m.get("role") == "user" and m.get("content")]
+        if user_msgs:
+            query = user_msgs[-1]["content"]
+
+    if not query:
+        # SSE 규격상 에러는 일반 JSON으로 즉시 반환하지 않고, 간단한 이벤트로 전달
+        def error_gen():
+            yield "data: {\"type\": \"error\", \"message\": \"질문을 입력해주세요.\"}\n\n"
+        return StreamingResponse(error_gen(), media_type="text/event-stream")
+
+    messages = (payload or {}).get("messages")
+    session_id = (payload or {}).get("session_id")
+
+    def event_generator():
+        for chunk in stream_rag_qa(query=query, messages=messages, session_id=session_id):
+            yield chunk
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import os
-from typing import List, Dict, Optional
+import json
+from typing import List, Dict, Optional, Iterator
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -7,6 +8,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from embedding_processor import EmbeddingProcessor
+from openai import OpenAI
 
 load_dotenv()
 
@@ -132,6 +134,80 @@ class RagService:
             "items": results,
         }
 
+    def stream_answer(self, query: str, session_id: Optional[str] = None, messages: Optional[List[Dict]] = None, limit: int = 5) -> Iterator[str]:
+        # 1) 히스토리 시드
+        if session_id and messages:
+            self.seed_messages(session_id, messages)
+
+        # 2) 질문 재작성은 검색에만 사용
+        effective_query = query
+        if session_id:
+            effective_query = self.condense_query(session_id, query)
+
+        # 3) 검색 및 컨텍스트 구성
+        results = self.processor.search_similar_content(effective_query, limit)
+        context = build_context(results)
+
+        # 4) 메시지 구성 (시스템 + 대화이력 + 사용자 메시지[컨텍스트 포함])
+        system_content = "너는 문맥과 대화 이력을 근거로 한국어로 답변한다. 문맥 내용은 [1], [2] 번호로 인용하라. 모르면 모른다고 말한다."
+        chat_messages: List[Dict[str, str]] = [{"role": "system", "content": system_content}]
+
+        hist: Optional[ChatMessageHistory] = None
+        if session_id:
+            hist = self.get_history(session_id)
+            for m in hist.messages:
+                role = "user" if m.__class__.__name__ == "HumanMessage" else "assistant"
+                chat_messages.append({"role": role, "content": m.content})
+
+        user_prompt = f"질문: {query}\n\nContext:\n{context}"
+        chat_messages.append({"role": "user", "content": user_prompt})
+
+        # 5) OpenAI 스트리밍
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        stream = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.3,
+            messages=chat_messages,
+            stream=True,
+        )
+
+        # 먼저 메타 정보 전송 (원하는 경우 프론트에서 선표시 가능)
+        meta_payload = {
+            "type": "meta",
+            "rephrased_query": effective_query,
+            "sources": make_sources(results),
+        }
+        yield f"data: {json.dumps(meta_payload, ensure_ascii=False)}\n\n"
+
+        collected_tokens: List[str] = []
+        for chunk in stream:
+            try:
+                delta = chunk.choices[0].delta
+                token = getattr(delta, "content", None) if hasattr(delta, "content") else delta.get("content")  # type: ignore
+            except Exception:
+                token = None
+            if token:
+                collected_tokens.append(token)
+                yield f"data: {json.dumps({'type': 'token', 'content': token}, ensure_ascii=False)}\n\n"
+
+        answer_text = ("".join(collected_tokens)).strip()
+
+        # 히스토리에 저장
+        if session_id:
+            if hist is None:
+                hist = self.get_history(session_id)
+            hist.add_user_message(query)
+            hist.add_ai_message(answer_text)
+
+        final_payload = {
+            "type": "final",
+            "answer": answer_text,
+            "rephrased_query": effective_query,
+            "sources": make_sources(results),
+            "items": results,
+        }
+        yield f"data: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
+
 # ===== 전역 인스턴스 =====
 _service = None
 
@@ -143,3 +219,6 @@ def get_service() -> RagService:
 
 def run_rag_qa(query: str, limit: int = 5, messages: Optional[List[Dict]] = None, session_id: Optional[str] = None) -> Dict:
     return get_service().rag_query(query, session_id, messages, limit)
+
+def stream_rag_qa(query: str, limit: int = 5, messages: Optional[List[Dict]] = None, session_id: Optional[str] = None) -> Iterator[str]:
+    return get_service().stream_answer(query, session_id, messages, limit)

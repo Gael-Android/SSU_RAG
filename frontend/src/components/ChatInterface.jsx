@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import '../styles/ChatInterface.css';
@@ -42,22 +41,73 @@ function ChatInterface() {
 
     try {
       const minimalHistory = allMessages.map(m => ({ role: m.role, content: m.text }));
-      const response = await axios.post('/api/chat_api', {
-        query: text,
-        limit: 5,
-        messages: minimalHistory,
-        session_id: sessionId,
+
+      // 스트리밍 초기 placeholder 메시지 추가
+      const aiId = Date.now() + 1;
+      setMessages(prev => [...prev, { id: aiId, text: '', role: 'assistant', sources: [], timestamp: new Date() }]);
+
+      const res = await fetch('/api/chat_api/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: text,
+          limit: 5,
+          messages: minimalHistory,
+          session_id: sessionId,
+        }),
       });
 
-      const aiMessage = {
-        id: Date.now() + 1,
-        text: response.data.message || '응답을 받을 수 없습니다.',
-        role: 'assistant',
-        sources: response.data.sources || [],
-        timestamp: new Date()
+      if (!res.body) throw new Error('스트림을 열 수 없습니다.');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      const applyToken = (token) => {
+        setMessages(prev => prev.map(m => (
+          m.id === aiId ? { ...m, text: (m.text || '') + token } : m
+        )));
       };
 
-      setMessages(prev => [...prev, aiMessage]);
+      const applyMeta = (meta) => {
+        if (meta.sources) {
+          setMessages(prev => prev.map(m => (
+            m.id === aiId ? { ...m, sources: meta.sources } : m
+          )));
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let idx;
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const raw = buffer.slice(0, idx).trim();
+          buffer = buffer.slice(idx + 2);
+          if (!raw) continue;
+          // SSE 라인 파싱: 'data: {json}' 만 처리
+          if (raw.startsWith('data: ')) {
+            const jsonStr = raw.slice(6);
+            try {
+              const evt = JSON.parse(jsonStr);
+              if (evt.type === 'token' && evt.content) {
+                applyToken(evt.content);
+              } else if (evt.type === 'meta') {
+                applyMeta(evt);
+              } else if (evt.type === 'final' && evt.answer) {
+                // 최종 보정 (혹시 누락된 토큰 보완)
+                setMessages(prev => prev.map(m => (
+                  m.id === aiId ? { ...m, text: evt.answer, sources: evt.sources || m.sources } : m
+                )));
+              }
+            } catch (e) {
+              // 무시
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMessage = {
