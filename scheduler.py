@@ -6,7 +6,7 @@ import threading
 import time
 from rss import get_rss_reader
 from rss.reader import create_rss_reader_for
-from rss.config_loader import load_sources_from_file
+from rss.sources import KNOWN_SOURCES
 import os
 
 logger = logging.getLogger(__name__)
@@ -85,10 +85,7 @@ class RSSScheduler:
 
     def _fetch_all(self):
         """외부 파일의 identifier 목록을 순회하며 모두 수집"""
-        sources = load_sources_from_file(os.getenv("RSS_SOURCES_FILE", ""))
-        if not sources:
-            # 외부 파일 없을 때는 기본만 동작
-            return self._fetch_rss()
+        sources = [{"identifier": k, "rss_url": v} for k, v in KNOWN_SOURCES.items()]
 
         for src in sources:
             identifier = src.get("identifier")
