@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingProcessor:
     def __init__(self, 
-                 json_file_path: str = "data/scatch_ssu_ac_kr.json",
+                 json_file_path: str = "data",
                  milvus_host: str = None,
                  milvus_port: str = "19530"):
         """
@@ -45,20 +45,52 @@ class EmbeddingProcessor:
         logger.info("임베딩 처리기가 초기화되었습니다.")
     
     def load_rss_items(self) -> Dict[str, Dict]:
-        """JSON 파일에서 RSS 아이템들을 로드"""
+        """JSON 파일 또는 디렉토리(재귀)에서 모든 RSS 아이템들을 로드"""
         try:
-            if not os.path.exists(self.json_file_path):
-                logger.error(f"JSON 파일을 찾을 수 없습니다: {self.json_file_path}")
+            path = self.json_file_path
+            if not os.path.exists(path):
+                logger.error(f"경로를 찾을 수 없습니다: {path}")
                 return {}
-            
-            with open(self.json_file_path, 'r', encoding='utf-8') as file:
-                items = json.load(file)
-            
-            logger.info(f"총 {len(items)}개의 RSS 아이템을 로드했습니다.")
-            return items
-            
+
+            aggregated: Dict[str, Dict] = {}
+
+            def _load_file(fp: str) -> Dict[str, Dict]:
+                try:
+                    with open(fp, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            return data
+                        return {}
+                except Exception as e:
+                    logger.warning(f"JSON 로드 실패({fp}): {e}")
+                    return {}
+
+            if os.path.isdir(path):
+                for root, _, files in os.walk(path):
+                    for name in files:
+                        if not name.endswith('.json'):
+                            continue
+                        # 레거시 파일은 제외
+                        if name == 'rss_items.json':
+                            continue
+                        fp = os.path.join(root, name)
+                        items = _load_file(fp)
+                        for content_hash, item in items.items():
+                            if isinstance(item, dict):
+                                item.setdefault('content_hash', content_hash)
+                                aggregated[content_hash] = item
+            else:
+                items = _load_file(path)
+                for content_hash, item in items.items():
+                    if isinstance(item, dict):
+                        item.setdefault('content_hash', content_hash)
+                        aggregated[content_hash] = item
+
+            logger.info(f"총 {len(aggregated)}개의 RSS 아이템을 로드했습니다.")
+            return aggregated
+
         except Exception as e:
-            logger.error(f"JSON 파일 로드 실패: {e}")
+            logger.error(f"데이터 로드 실패: {e}")
             return {}
     
     def filter_new_items(self, all_items: Dict[str, Dict]) -> List[Dict]:
@@ -157,17 +189,28 @@ class EmbeddingProcessor:
     def get_statistics(self) -> Dict:
         """처리 통계 정보 반환"""
         vector_stats = self.vector_store.get_stats()
-        
-        # JSON 파일의 전체 아이템 수 가져오기
         all_items = self.load_rss_items()
         total_in_json = len(all_items)
-        
+
+        json_overview: Dict[str, Dict] = {"path": self.json_file_path}
+        if os.path.isdir(self.json_file_path):
+            file_list = []
+            for root, _, files in os.walk(self.json_file_path):
+                for name in files:
+                    if name.endswith('.json') and name != 'rss_items.json':
+                        file_list.append(os.path.join(root, name))
+            json_overview.update({
+                "exists": True,
+                "files_count": len(file_list)
+            })
+        else:
+            json_overview.update({
+                "exists": os.path.exists(self.json_file_path),
+                "files_count": 1 if os.path.exists(self.json_file_path) else 0,
+            })
+
         return {
-            "json_file": {
-                "path": self.json_file_path,
-                "total_items": total_in_json,
-                "exists": os.path.exists(self.json_file_path)
-            },
+            "json_file": json_overview,
             "vector_store": vector_stats,
             "processing_status": {
                 "items_in_json": total_in_json,
@@ -182,8 +225,8 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="RSS 아이템 임베딩 처리")
-    parser.add_argument("--json-file", default="data/scatch_ssu_ac_kr.json", 
-                       help="RSS 아이템 JSON 파일 경로")
+    parser.add_argument("--json-file", default="data", 
+                       help="RSS 아이템 JSON 파일 또는 디렉토리 경로(재귀)")
     parser.add_argument("--milvus-host", default="localhost", 
                        help="Milvus 서버 호스트")
     parser.add_argument("--milvus-port", default="19530", 
