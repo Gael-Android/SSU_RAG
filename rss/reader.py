@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import feedparser
 
 from .models import RSSItem
+from .config_loader import load_sources_from_file
 from .storage import RSSStorage
 from .utils import (
     clean_html_text,
@@ -186,7 +187,13 @@ def get_rss_reader() -> RSSReader:
 
 def create_rss_reader_for(identifier: str) -> RSSReader:
     """identifier에 맞는 기본 피드 URL과 저장 파일명을 사용하는 리더 생성"""
-    rss_url = f"https://ssufid.yourssu.com/{identifier}/rss.xml"
+    # 외부 파일 우선, 없으면 기본 패턴 사용
+    ext_sources = load_sources_from_file(os.getenv("RSS_SOURCES_FILE", ""))
+    mapped = next((s for s in ext_sources if s.get("identifier") == identifier), None)
+    if mapped:
+        rss_url = mapped.get("rss_url")
+    else:
+        rss_url = f"https://ssufid.yourssu.com/{identifier}/rss.xml"
     return RSSReader(rss_url, identifier=identifier)
 
 

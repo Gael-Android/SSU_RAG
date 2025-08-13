@@ -1,11 +1,13 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 import threading
 import time
 from rss import get_rss_reader
 from rss.reader import create_rss_reader_for
+from rss.config_loader import load_sources_from_file
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,7 @@ class RSSScheduler:
                     time.sleep(1)  # 1초씩 체크하여 즉시 중지 가능하도록
                 
                 if self.is_running:
-                    self._fetch_rss()
+                    self._fetch_all()
                     
             except Exception as e:
                 logger.error(f"스케줄러 실행 중 오류 발생: {e}")
@@ -65,7 +67,7 @@ class RSSScheduler:
                 time.sleep(60)  # 1분 대기 후 재시도
     
     def _fetch_rss(self):
-        """RSS 피드를 가져오기"""
+        """기본 RSS 피드를 가져오기 (단일)"""
         try:
             logger.info("정기 RSS 피드 가져오기 시작")
             result = self.rss_reader.fetch_feed()
@@ -80,6 +82,28 @@ class RSSScheduler:
                 
         except Exception as e:
             logger.error(f"RSS 피드 가져오기 중 예외 발생: {e}")
+
+    def _fetch_all(self):
+        """외부 파일의 identifier 목록을 순회하며 모두 수집"""
+        sources = load_sources_from_file(os.getenv("RSS_SOURCES_FILE", ""))
+        if not sources:
+            # 외부 파일 없을 때는 기본만 동작
+            return self._fetch_rss()
+
+        for src in sources:
+            identifier = src.get("identifier")
+            if not identifier:
+                continue
+            try:
+                logger.info("정기 RSS(%s) 피드 가져오기 시작", identifier)
+                reader = create_rss_reader_for(identifier)
+                result = reader.fetch_feed()
+                if result.get("status") == "success":
+                    logger.info("[%s] 성공: 새 %d", identifier, result.get("new_items", 0))
+                else:
+                    logger.error("[%s] 실패: %s", identifier, result.get("error"))
+            except Exception as e:
+                logger.error("[%s] 수집 중 예외: %s", identifier, e)
     
     def get_status(self) -> dict:
         """스케줄러 상태 정보 반환"""

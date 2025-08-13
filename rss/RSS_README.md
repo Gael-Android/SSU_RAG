@@ -54,6 +54,7 @@ POST /rss/fetch
    - 백그라운드에서 1시간마다 실행
    - 멀티스레딩으로 안전한 스케줄링
    - 서버 시작/종료시 자동 관리
+   - 외부 소스 파일(`RSS_SOURCES_FILE` 환경변수)로 다중 피드 순회 수집 지원
 
 3. **FastAPI 통합** (`main.py`)
    - REST API 엔드포인트 제공
@@ -80,7 +81,7 @@ POST /rss/fetch
 
 ### 서버 시작
 ```bash
-uv run python main.py
+RSS_SOURCES_FILE=rss/sources.sample.json uv run python main.py
 ```
 
 ### API 호출 예시

@@ -99,8 +99,8 @@ def rewrite_download_urls(hrefs: List[str], identifier: str) -> List[str]:
 
 
 def identifier_to_filename(identifier: str) -> str:
-    """identifier를 data/{identifier의 .을 _로 교체}.json 형태의 파일 경로로 변환"""
-    safe = (identifier or "").strip().replace(".", "_")
+    """identifier를 data/{identifier의 .과 /를 _로 교체}.json 형태로 변환"""
+    safe = (identifier or "").strip().replace(".", "_").replace("/", "_")
     if not safe:
         safe = "rss_items"
     return f"data/{safe}.json"
