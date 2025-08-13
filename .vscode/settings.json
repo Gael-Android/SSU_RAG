@@ -1,0 +1,9 @@
+{
+  "python.defaultInterpreterPath": "/home/kwkun/SSU_RAG/.venv/bin/python",
+  "python.analysis.extraPaths": [
+    "/home/kwkun/SSU_RAG"
+  ],
+  "python.analysis.diagnosticMode": "workspace",
+  "python.analysis.typeCheckingMode": "basic"
+}
+
