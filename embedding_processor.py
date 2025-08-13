@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingProcessor:
     def __init__(self, 
-                 json_file_path: str = "data/rss_items.json",
+                 json_file_path: str = "data/scatch_ssu_ac_kr.json",
                  milvus_host: str = None,
                  milvus_port: str = "19530"):
         """
@@ -182,7 +182,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="RSS 아이템 임베딩 처리")
-    parser.add_argument("--json-file", default="data/rss_items.json", 
+    parser.add_argument("--json-file", default="data/scatch_ssu_ac_kr.json", 
                        help="RSS 아이템 JSON 파일 경로")
     parser.add_argument("--milvus-host", default="localhost", 
                        help="Milvus 서버 호스트")

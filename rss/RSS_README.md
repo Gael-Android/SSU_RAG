@@ -8,7 +8,7 @@
 - **URL**: `https://ssufid.yourssu.com/scatch.ssu.ac.kr/rss.xml`
 - **수집 간격**: 1시간마다 자동 실행
 - **중복 방지**: 콘텐츠 해시 기반으로 중복 아이템 자동 필터링
-- **데이터 저장**: `data/rss_items.json` 파일에 영구 저장
+- **데이터 저장**: `data/scatch_ssu_ac_kr.json` 파일에 영구 저장
 - **HTML 정리**: 모든 HTML 태그와 특수문자 제거하여 벡터DB 최적화
 
 ### 📊 REST API 엔드포인트

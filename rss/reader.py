@@ -7,7 +7,14 @@ import feedparser
 
 from .models import RSSItem
 from .storage import RSSStorage
-from .utils import clean_html_text, create_content_hash
+from .utils import (
+    clean_html_text,
+    create_content_hash,
+    extract_anchor_hrefs,
+    normalize_hrefs,
+    rewrite_download_urls,
+    identifier_to_filename,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -16,9 +23,10 @@ logger = logging.getLogger(__name__)
 class RSSReader:
     """RSS 피드를 읽고 처리하는 메인 클래스"""
 
-    def __init__(self, rss_url: str, storage: Optional[RSSStorage] = None):
+    def __init__(self, rss_url: str, identifier: str, storage: Optional[RSSStorage] = None):
         self.rss_url = rss_url
-        self.storage = storage or RSSStorage()
+        self.identifier = identifier
+        self.storage = storage or RSSStorage(storage_file=identifier_to_filename(identifier))
 
     def _parse_rss_item(self, entry: Any) -> RSSItem:
         """feedparser 엔트리를 RSSItem으로 변환"""
@@ -65,6 +73,22 @@ class RSSReader:
         description = clean_html_text(description_raw)
         content = clean_html_text(content_raw) if content_raw else None
 
+        # 본문 내 a 태그 href 수집 (description 및 content 모두 대상)
+        href_candidates: List[str] = []
+        href_candidates.extend(extract_anchor_hrefs(description_raw))
+        if content_raw:
+            href_candidates.extend(extract_anchor_hrefs(content_raw))
+
+        # 상대/스킴 없는 링크를 도메인 기준으로 정규화하고, 중복 제거(입력 순서 보존)
+        normalized = normalize_hrefs(href_candidates, self.identifier)
+        normalized = rewrite_download_urls(normalized, self.identifier)
+        seen: set = set()
+        anchor_hrefs: List[str] = []
+        for h in normalized:
+            if h and h not in seen:
+                seen.add(h)
+                anchor_hrefs.append(h)
+
         # 콘텐츠 해시 생성 (원본 description 기준으로 중복 체크)
         content_hash = create_content_hash(title, link, description_raw)
 
@@ -84,6 +108,8 @@ class RSSReader:
             enclosure_url=enclosure_url,
             enclosure_type=enclosure_type,
             content=content,
+            anchor_hrefs=anchor_hrefs,
+            identifier=self.identifier,
         )
 
     def fetch_feed(self) -> Dict[str, Any]:
@@ -154,7 +180,13 @@ def get_rss_reader() -> RSSReader:
     global _rss_reader_instance
     if _rss_reader_instance is None:
         rss_url = "https://ssufid.yourssu.com/scatch.ssu.ac.kr/rss.xml"
-        _rss_reader_instance = RSSReader(rss_url)
+        _rss_reader_instance = RSSReader(rss_url, identifier="scatch.ssu.ac.kr")
     return _rss_reader_instance
+
+
+def create_rss_reader_for(identifier: str) -> RSSReader:
+    """identifier에 맞는 기본 피드 URL과 저장 파일명을 사용하는 리더 생성"""
+    rss_url = f"https://ssufid.yourssu.com/{identifier}/rss.xml"
+    return RSSReader(rss_url, identifier=identifier)
 
 

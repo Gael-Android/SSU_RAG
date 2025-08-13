@@ -17,7 +17,7 @@
 ├── embedding_processor.py   # 임베딩 처리 메인 로직
 ├── main.py                 # FastAPI 서버 (벡터 API 엔드포인트 추가)
 ├── docker-compose.yml      # Milvus 포함한 Docker 환경
-└── data/rss_items.json     # RSS 데이터 소스
+└── data/scatch_ssu_ac_kr.json     # RSS 데이터 소스
 ```
 
 ## 🔧 설치 및 설정
@@ -94,7 +94,7 @@ uv run embedding_processor.py --search "장학금 신청"
 
 ## 📊 데이터 흐름
 
-1. **RSS 데이터 로드**: `data/rss_items.json`에서 RSS 아이템들을 읽기
+1. **RSS 데이터 로드**: `data/scatch_ssu_ac_kr.json`에서 RSS 아이템들을 읽기
 2. **중복 체크**: Milvus DB에서 이미 처리된 아이템의 해시값 확인
 3. **텍스트 정리**: HTML 태그 및 특수문자 제거
 4. **임베딩 생성**: OpenAI `text-embedding-ada-002` 모델 사용
@@ -139,7 +139,7 @@ curl http://localhost:8888/vector/stats
 ```json
 {
   "json_file": {
-    "path": "data/rss_items.json", 
+    "path": "data/scatch_ssu_ac_kr.json", 
     "total_items": 1400,
     "exists": true
   },
@@ -170,7 +170,7 @@ curl http://localhost:8888/vector/stats
 ```python
 # embedding_processor.py에서 설정 변경 가능
 processor = EmbeddingProcessor(
-    json_file_path="data/rss_items.json",
+    json_file_path="data/scatch_ssu_ac_kr.json",
     milvus_host="localhost",  # Milvus 호스트
     milvus_port="19530"       # Milvus 포트
 )

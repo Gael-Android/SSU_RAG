@@ -5,6 +5,7 @@ from typing import Optional
 import threading
 import time
 from rss import get_rss_reader
+from rss.reader import create_rss_reader_for
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,12 @@ class RSSScheduler:
         """즉시 RSS 피드 가져오기"""
         logger.info("수동 RSS 피드 가져오기 요청")
         return self.rss_reader.fetch_feed()
+
+    def fetch_for(self, identifier: str) -> dict:
+        """특정 identifier 피드를 즉시 가져오기"""
+        logger.info("수동 RSS 피드 가져오기 요청 - identifier=%s", identifier)
+        reader = create_rss_reader_for(identifier)
+        return reader.fetch_feed()
 
 # 전역 스케줄러 인스턴스
 _scheduler_instance: Optional[RSSScheduler] = None

@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 
 # RSS 리더 관련 임포트
 from rss import get_rss_reader
+from rss.reader import create_rss_reader_for
 from scheduler import get_scheduler, start_scheduler, stop_scheduler
 
 # 임베딩 처리 관련 임포트
@@ -109,6 +110,13 @@ async def fetch_rss_now():
     scheduler = get_scheduler()
     result = scheduler.fetch_now()
     return result
+
+
+@app.post("/rss/fetch/{identifier}")
+async def fetch_rss_for(identifier: str):
+    """특정 identifier 피드를 즉시 수집"""
+    reader = create_rss_reader_for(identifier)
+    return reader.fetch_feed()
 
 # 벡터 임베딩 관련 엔드포인트들
 @app.post("/vector/process")

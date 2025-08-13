@@ -5,6 +5,7 @@ from dataclasses import asdict
 from typing import Dict, List
 
 from .models import RSSItem
+from .utils import normalize_hrefs, rewrite_download_urls
 
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 class RSSStorage:
     """RSS 아이템들을 저장하고 중복을 관리하는 클래스"""
 
-    def __init__(self, storage_file: str = "data/rss_items.json"):
+    def __init__(self, storage_file: str = "data/scatch_ssu_ac_kr.json"):
         self.storage_file = storage_file
         self.items: Dict[str, RSSItem] = {}
         self.ensure_data_directory()
@@ -29,9 +30,38 @@ class RSSStorage:
             try:
                 with open(self.storage_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.items = {
-                        key: RSSItem(**item_data) for key, item_data in data.items()
-                    }
+                    # data는 {content_hash: item_dict}
+                    items: Dict[str, RSSItem] = {}
+                    for key, item_data in data.items():
+                        if isinstance(item_data, dict) and "IDENTIFIER" in item_data and "identifier" not in item_data:
+                            # 과거 대문자 키를 소문자 필드로 매핑
+                            item_data = {**item_data}
+                            item_data["identifier"] = item_data.pop("IDENTIFIER")
+                        # dataclass 정의에 없는 키 무시
+                        try:
+                            items[key] = RSSItem(**item_data)
+                        except TypeError:
+                            # 불필요한 키 제거 후 재시도
+                            from dataclasses import fields as dc_fields
+                            allowed = {f.name for f in dc_fields(RSSItem)}
+                            filtered = {k: v for k, v in item_data.items() if k in allowed}
+                            items[key] = RSSItem(**filtered)
+                    # 후처리: anchor_hrefs 정규화 및 다운로드 링크 재작성
+                    for k, it in items.items():
+                        try:
+                            # dataclass 인스턴스 보장
+                            if isinstance(it.anchor_hrefs, list):
+                                norm = normalize_hrefs(it.anchor_hrefs, getattr(it, "identifier", "scatch.ssu.ac.kr"))
+                                rew = rewrite_download_urls(norm, getattr(it, "identifier", "scatch.ssu.ac.kr"))
+                                it.anchor_hrefs = []
+                                seen = set()
+                                for href in rew:
+                                    if href and href not in seen:
+                                        seen.add(href)
+                                        it.anchor_hrefs.append(href)
+                        except Exception:
+                            pass
+                    self.items = items
                 logger.info("기존 RSS 아이템 %d개를 로드했습니다.", len(self.items))
             except Exception as exc:  # noqa: BLE001
                 logger.error("RSS 아이템 로드 중 오류 발생: %s", exc)

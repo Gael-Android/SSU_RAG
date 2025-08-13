@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, List
 
 
 @dataclass
@@ -18,5 +18,7 @@ class RSSItem:
     enclosure_url: Optional[str] = None
     enclosure_type: Optional[str] = None
     content: Optional[str] = None  # HTML 제거된 깔끔한 전체 내용
+    anchor_hrefs: List[str] = field(default_factory=list)  # 본문 내 a 태그 href 목록
+    identifier: str = "scatch.ssu.ac.kr"
 
 
