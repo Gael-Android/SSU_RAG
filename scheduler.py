@@ -35,7 +35,7 @@ class RSSScheduler:
         logger.info(f"RSS 스케줄러가 시작되었습니다. (간격: {self.interval_hours}시간)")
         
         # 시작할 때 한 번 실행
-        self._fetch_rss()
+        self._fetch_all()
     
     def stop(self):
         """스케줄러 중지"""
