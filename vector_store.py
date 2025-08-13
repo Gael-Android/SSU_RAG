@@ -4,6 +4,7 @@ OpenAI 임베딩을 사용하여 RSS 아이템을 벡터 DB에 저장하고 관�
 """
 
 import os
+import time
 import re
 import json
 import hashlib
@@ -53,17 +54,25 @@ class VectorStore:
         self._load_processed_hashes()
     
     def _connect_milvus(self):
-        """Milvus 데이터베이스에 연결"""
-        try:
-            connections.connect(
-                alias="default",
-                host=self.milvus_host,
-                port=self.milvus_port
-            )
-            logger.info(f"Milvus에 연결되었습니다: {self.milvus_host}:{self.milvus_port}")
-        except Exception as e:
-            logger.error(f"Milvus 연결 실패: {e}")
-            raise
+        """Milvus 데이터베이스에 연결 (준비될 때까지 재시도)"""
+        max_attempts = int(os.getenv("MILVUS_CONNECT_RETRIES", "60"))
+        delay_seconds = float(os.getenv("MILVUS_CONNECT_DELAY", "2"))
+        last_err: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                connections.connect(
+                    alias="default",
+                    host=self.milvus_host,
+                    port=self.milvus_port
+                )
+                logger.info(f"Milvus에 연결되었습니다: {self.milvus_host}:{self.milvus_port}")
+                return
+            except Exception as e:
+                last_err = e
+                logger.warning(f"Milvus 연결 대기 중({attempt}/{max_attempts}): {e}")
+                time.sleep(delay_seconds)
+        logger.error(f"Milvus 연결 실패: {last_err}")
+        raise last_err
     
     def _setup_collection(self):
         """컬렉션 스키마 생성 및 초기화"""
@@ -84,6 +93,8 @@ class VectorStore:
             FieldSchema(name="category", dtype=DataType.VARCHAR, max_length=200),
             FieldSchema(name="published", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="link", dtype=DataType.VARCHAR, max_length=1000),
+            FieldSchema(name="identifier", dtype=DataType.VARCHAR, max_length=200),
+            FieldSchema(name="anchor_hrefs", dtype=DataType.VARCHAR, max_length=60000),
             FieldSchema(name="created_at", dtype=DataType.VARCHAR, max_length=100),
             FieldSchema(name="raw_json", dtype=DataType.VARCHAR, max_length=60000),
             FieldSchema(name="full_vector", dtype=DataType.FLOAT_VECTOR, dim=self.embedding_dim)
@@ -220,6 +231,8 @@ class VectorStore:
                 "category": self._clean_text(category)[:200],
                 "published": self._clean_text(published)[:100],
                 "link": item_data.get("link", "")[:1000],
+                "identifier": item_data.get("identifier", "")[:200],
+                "anchor_hrefs": json.dumps(item_data.get("anchor_hrefs", []), ensure_ascii=False)[:60000],
                 "created_at": datetime.now().isoformat(),
                 "raw_json": json.dumps(item_data, ensure_ascii=False)[:60000],
                 "full_vector": full_vector
@@ -286,7 +299,7 @@ class VectorStore:
                 anns_field=effective_field,
                 param=search_params,
                 limit=limit,
-                output_fields=["title", "description", "content", "author", "category", "published", "link", "raw_json"]
+                output_fields=["title", "description", "content", "author", "category", "published", "link", "identifier", "anchor_hrefs", "raw_json"]
             )
             
             # 결과 변환
@@ -300,7 +313,9 @@ class VectorStore:
                     "author": hit.entity.get("author"),
                     "category": hit.entity.get("category"),
                     "published": hit.entity.get("published"),
-                    "link": hit.entity.get("link")
+                    "link": hit.entity.get("link"),
+                    "identifier": hit.entity.get("identifier"),
+                    "anchor_hrefs": hit.entity.get("anchor_hrefs")
                 })
             
             return similar_items
